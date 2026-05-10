@@ -17,6 +17,9 @@ from .properties import (
 )
 
 MIN_BREAKUP_GROWTH_RATE = 1e-12
+BREAKUP_MODEL_NAME = 'Sterling-Sleicher laminar capillary correlation'
+BREAKUP_MODEL_FORMULA = 'Lb/D = C_cal × 13 × sqrt(We) × (1 + C_Oh Oh)'
+BREAKUP_MODEL_LIMITATIONS = 'Laminar capillary breakup only; aerodynamic breakup and measured nozzle forcing are not modeled.'
 
 
 @dataclass(frozen=True)
@@ -24,6 +27,12 @@ class NozzleDiagnostics:
     breakup_length: float
     breakup_time: float
     breakup_source: str
+    breakup_mode: str
+    breakup_model_name: str
+    breakup_model_formula: str
+    breakup_model_limitations: str
+    computed_breakup_length: float
+    computed_breakup_time: float
     reynolds_number: float
     weber_number: float
     ohnesorge_number: float
@@ -53,7 +62,13 @@ class NozzleDiagnostics:
             f'  {diffusion_line}',
             f'Cooling rate (1-D)     : {self.cooling_rate_1d:.2e} K/m',
             f'Re={self.reynolds_number:.0f}  We={self.weber_number:.2f}  Oh={self.ohnesorge_number:.4f}',
-            f'Breakup length ({self.breakup_source}) : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_time * 1e6:.1f} us)',
+            f'Breakup mode           : {self.breakup_mode}',
+            f'Breakup model          : {self.breakup_model_name}',
+            f'Breakup correlation    : {self.breakup_model_formula}',
+            f'Breakup tuning         : C_cal={params.breakup_calibration_factor:.2f}, C_Oh={params.breakup_viscous_coefficient:.2f}',
+            f'Selected breakup len   : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_source}, {self.breakup_time * 1e6:.1f} us)',
+            f'Computed reference Lb  : {self.computed_breakup_length * 1e3:.2f} mm  ({self.computed_breakup_time * 1e6:.1f} us)',
+            f'Breakup caveat         : {self.breakup_model_limitations}',
             f'Fourier no. at breakup : {self.fourier_breakup:.3f}  (>1=isothermal, <0.1=strong gradient)',
             f'Delta relaxation len   : {self.delta_relax_length * 1e3:.2f} mm',
             f'Quasi-steady dT_surf   : {self.delta_t_quasisteady:.1f} K below mean',
@@ -131,6 +146,8 @@ class SimulationResult:
             f'  r         = {self.r[-1] * 1e6:.3f} μm',
             '',
             f'Total evaporation rate: {self.M_dot_evap * 1e9:.3f} ng/s',
+            f'Breakup mode         : {self.nozzle_diagnostics.breakup_mode}',
+            f'Breakup model        : {self.nozzle_diagnostics.breakup_model_name}',
             f'Breakup source       : {self.breakup_source}',
         ]
 
@@ -143,26 +160,38 @@ def adiabatic_freeze_fraction(params: JetParams, T_surface: float) -> float:
 
 def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None) -> tuple[float, float, float, float]:
     """
-    Convective Rayleigh breakup estimate with viscous damping.
+    Laminar capillary breakup estimate using a Sterling-Sleicher style correlation.
 
     Assumptions:
-    - Axisymmetric capillary mode near kR ≈ 0.697 (Tomotika/Rayleigh fastest mode).
-    - Disturbance grows exponentially while convecting with the mean jet speed.
-    - Viscosity reduces the inviscid growth rate using 1/(1 + C_oh*Oh).
-    - Initial/final disturbance amplitudes are user-tunable fractions of jet radius.
+    - Laminar, capillary-dominated jet breakup (Rayleigh/Tomotika regime).
+    - Breakup length scales with sqrt(We) and increases mildly with Oh.
+    - The baseline coefficient is params.breakup_correlation_coefficient (13 by default),
+      matching the nominal Sterling-Sleicher laminar-jet pre-factor before calibration.
+    - A user-visible calibration factor captures nozzle-specific disturbance level.
+    - External aerodynamic atomization is out of scope.
     """
     T_eval = params.T_nozzle if T_ref_local is None else T_ref_local
     sigma_local = liquid_surface_tension(T_eval, params)
     mu_local = liquid_dynamic_viscosity(T_eval, params)
+    if params.d_nozzle <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires a positive nozzle diameter, got {params.d_nozzle}.')
+    if params.rho_l <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires a positive liquid density, got {params.rho_l}.')
+    if sigma_local <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires positive surface tension, got {sigma_local}.')
     We = params.rho_l * params.v_nozzle**2 * (2.0 * params.r_nozzle) / sigma_local
+    if We <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires a positive Weber number, got {We}.')
     Oh = mu_local / np.sqrt(params.rho_l * sigma_local * 2.0 * params.r_nozzle)
-    omega_capillary = np.sqrt(sigma_local / (params.rho_l * params.r_nozzle**3))
-    omega_fastest = 0.343 * omega_capillary / (1.0 + params.breakup_viscous_coefficient * Oh)
-    seed = np.clip(params.breakup_initial_amplitude_fraction, 1e-8, 0.9)
-    final = np.clip(params.breakup_final_amplitude_fraction, seed + 1e-8, 0.95)
-    growth_log = np.log(final / seed)
-    tb = growth_log / max(omega_fastest, MIN_BREAKUP_GROWTH_RATE)
-    return float(params.v_nozzle * tb), float(tb), float(We), float(Oh)
+    breakup_length = (
+        params.breakup_calibration_factor
+        * params.breakup_correlation_coefficient
+        * params.d_nozzle
+        * np.sqrt(We)
+        * (1.0 + params.breakup_viscous_coefficient * Oh)
+    )
+    breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
+    return float(breakup_length), float(breakup_time), float(We), float(Oh)
 
 
 def surface_wave_area_factor(params: JetParams, r: float, z: float, sigma_local: float) -> float:
@@ -183,11 +212,13 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
     if params.switches.use_breakup_length_model:
         breakup_length = computed_breakup_length
         breakup_time = computed_breakup_time
-        breakup_source = 'computed Rayleigh-Tomotika'
+        breakup_source = 'computed Sterling-Sleicher correlation'
+        breakup_mode = 'computed correlation'
     else:
         breakup_length = params.fixed_breakup_length
         breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
         breakup_source = 'fixed user value'
+        breakup_mode = 'fixed user value'
     Re = params.rho_l * params.v_nozzle * params.d_nozzle / liquid_dynamic_viscosity(params.T_nozzle, params)
     cp_nozzle = liquid_heat_capacity(params.T_nozzle, params)
     sigma_nozzle = liquid_surface_tension(params.T_nozzle, params)
@@ -204,6 +235,12 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
         breakup_length=breakup_length,
         breakup_time=breakup_time,
         breakup_source=breakup_source,
+        breakup_mode=breakup_mode,
+        breakup_model_name=BREAKUP_MODEL_NAME,
+        breakup_model_formula=BREAKUP_MODEL_FORMULA,
+        breakup_model_limitations=BREAKUP_MODEL_LIMITATIONS,
+        computed_breakup_length=computed_breakup_length,
+        computed_breakup_time=computed_breakup_time,
         reynolds_number=float(Re),
         weber_number=We,
         ohnesorge_number=Oh,

@@ -3,15 +3,22 @@ from __future__ import annotations
 from dataclasses import replace
 import numpy as np
 
-from .config import make_default_params, select_solvent
+from .config import build_user_params, make_default_params, select_solvent
 from .evaporation import diffusion_limited_flux, hertz_knudsen_flux
-from .jet_model import solve_jet
+from .jet_model import compute_nozzle_diagnostics, solve_jet
 from .nucleation import compute_survival
 from .properties import liquid_dynamic_viscosity, liquid_heat_capacity, liquid_surface_tension
 from .solvents import SOLVENT_DATABASE
 
 
 def run_smoke_tests() -> list[str]:
+    def expect_value_error(**kwargs: float) -> None:
+        try:
+            build_user_params(**kwargs)
+        except ValueError:
+            return
+        raise AssertionError(f'Expected ValueError for build_user_params({kwargs}).')
+
     params = make_default_params()
 
     cp_293 = liquid_heat_capacity(293.15, params)
@@ -32,16 +39,40 @@ def run_smoke_tests() -> list[str]:
     assert solution.termination_reason == 'breakup'
     assert solution.z[-1] <= solution.breakup_length + 1e-9
     assert solution.breakup_source.startswith('computed')
+    assert solution.nozzle_diagnostics.breakup_model_name.startswith('Sterling-Sleicher')
 
     fixed_mode = solve_jet(
         params.with_updates(
             switches=replace(params.switches, use_breakup_length_model=False),
-            fixed_breakup_length=3e-3,
+            fixed_breakup_length=2.5e-3,
         )
     )
     assert fixed_mode.breakup_source.startswith('fixed')
-    assert abs(fixed_mode.breakup_length - 3e-3) < 1e-12
+    assert abs(fixed_mode.breakup_length - 2.5e-3) < 1e-12
     assert fixed_mode.termination_reason == 'breakup'
+    assert abs(fixed_mode.nozzle_diagnostics.computed_breakup_length - fixed_mode.breakup_length) > 1e-6
+
+    user_params = build_user_params(
+        selected_solvent='EtOH',
+        use_computed_breakup_length=False,
+        fixed_breakup_length_mm=3.5,
+        breakup_calibration_factor=0.72,
+        breakup_viscous_coefficient=2.5,
+    )
+    user_diag = compute_nozzle_diagnostics(user_params)
+    assert user_params.solvent == 'EtOH'
+    assert not user_params.switches.use_breakup_length_model
+    assert abs(user_params.fixed_breakup_length - 3.5e-3) < 1e-12
+    assert abs(user_params.breakup_calibration_factor - 0.72) < 1e-12
+    assert abs(user_params.breakup_viscous_coefficient - 2.5) < 1e-12
+    assert user_diag.breakup_mode == 'fixed user value'
+    assert user_diag.computed_breakup_length > 0.0
+
+    for invalid_length_mm in (-1.0, 0.0):
+        expect_value_error(fixed_breakup_length_mm=invalid_length_mm)
+    for invalid_calibration in (-0.1, 0.0):
+        expect_value_error(breakup_calibration_factor=invalid_calibration)
+    expect_value_error(breakup_viscous_coefficient=-0.1)
 
     for solvent in SOLVENT_DATABASE.values():
         solvent_params = select_solvent(params, solvent.name)

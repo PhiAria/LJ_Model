@@ -38,6 +38,7 @@ def termination_label(solution: SimulationResult, nucleation: NucleationResult) 
 
 
 def build_summary(params: JetParams, solution: SimulationResult, nucleation: NucleationResult, parametric: ParametricStudyResult) -> str:
+    nozzle = solution.nozzle_diagnostics
     kn_end = solution.kn_profile[-1]
     property_temp_ok = solution.T_surface.min() >= params.T_property_min and solution.T_surface.max() <= params.T_property_max
     nucleation_fit_ok = solution.T_surface.min() >= params.T_nucl_min
@@ -63,8 +64,14 @@ def build_summary(params: JetParams, solution: SimulationResult, nucleation: Nuc
         f'Verdict              : {severity_verdict(solution, nucleation)}',
         f'Termination          : {termination_label(solution, nucleation)}',
         f'Solvent              : {params.solvent}',
+        f'Breakup mode         : {nozzle.breakup_mode}',
+        f'Breakup model        : {nozzle.breakup_model_name}',
+        f'Breakup correlation  : {nozzle.breakup_model_formula}',
+        f'Breakup tuning       : C_cal={params.breakup_calibration_factor:.2f}, C_Oh={params.breakup_viscous_coefficient:.2f}',
+        f'Breakup caveat       : {nozzle.breakup_model_limitations}',
         f'T_surface (end)      : {solution.T_surface[-1]:.2f} K',
         f'Breakup length       : {solution.breakup_length * 1e3:.2f} mm ({solution.breakup_source})',
+        f'Computed ref. Lb     : {nozzle.computed_breakup_length * 1e3:.2f} mm',
         '',
         f'T_nozzle             : {params.T_nozzle:.2f} K',
         f'P_chamber            : {params.P_chamber:.2e} Pa',
@@ -115,11 +122,13 @@ def create_figure(
     output_path: str = 'jet_analysis.png',
 ) -> tuple[plt.Figure, np.ndarray, str]:
     summary = build_summary(params, solution, nucleation, parametric)
+    nozzle = solution.nozzle_diagnostics
     fig, axes = plt.subplots(3, 3, figsize=(17, 13))
     fig.suptitle(
         f'Liquid jet model ({params.solvent}) | P_chamber={params.P_chamber:.2e} Pa | P_back={params.P_back:.2e} Pa | '
         f'radial profile={params.switches.use_radial_profile} | surface waves={params.switches.use_surface_waves} | '
-        f'T-dependent props={params.switches.use_temp_dependent_properties} | breakup={solution.breakup_source}',
+        f'T-dependent props={params.switches.use_temp_dependent_properties} | breakup mode={nozzle.breakup_mode} | '
+        f'model={nozzle.breakup_model_name}',
         fontsize=11,
         y=1.01,
     )
