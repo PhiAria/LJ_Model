@@ -188,7 +188,7 @@ def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None)
         * np.sqrt(We)
         * (1.0 + params.breakup_viscous_coefficient * Oh)
     )
-    breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min, MIN_BREAKUP_GROWTH_RATE)
+    breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
     return float(breakup_length), float(breakup_time), float(We), float(Oh)
 
 
