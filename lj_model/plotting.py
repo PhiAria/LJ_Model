@@ -20,7 +20,7 @@ def severity_verdict(solution: SimulationResult, nucleation: NucleationResult) -
         return 'ERROR (model violated numerical guard)'
     if solution.termination_reason == 'freeze':
         return 'OK (empirical freeze onset reached before breakup)'
-    if np.isfinite(nucleation.z_50) and nucleation.z_50 <= solution.breakup_length + 1e-12:
+    if np.isfinite(nucleation.z_frozen_50) and nucleation.z_frozen_50 <= solution.breakup_length + 1e-12:
         return 'OK (CNT median nucleation predicted before breakup)'
     if solution.within_breakup:
         return 'WARNING (no freezing or CNT median nucleation before breakup)'
@@ -28,7 +28,7 @@ def severity_verdict(solution: SimulationResult, nucleation: NucleationResult) -
 
 
 def termination_label(solution: SimulationResult, nucleation: NucleationResult) -> str:
-    if np.isfinite(nucleation.z_50) and nucleation.z_50 <= solution.z[-1] + 1e-12:
+    if np.isfinite(nucleation.z_frozen_50) and nucleation.z_frozen_50 <= solution.z[-1] + 1e-12:
         return 'Termination context: CNT median nucleation reached on liquid branch'
     if solution.termination_reason == 'freeze':
         return 'Termination context: empirical freeze onset backstop'
@@ -72,9 +72,9 @@ def build_summary(params: JetParams, solution: SimulationResult, nucleation: Nuc
         f'Delta (end)          : {solution.Delta[-1]:.2f} K',
         f'r (end)              : {solution.r[-1] * 1e6:.3f} μm',
         '',
-        f'CNT z50 (median)     : {fmt_mm(nucleation.z_50)}',
-        f'CNT z10              : {fmt_mm(nucleation.z_10)}',
-        f'CNT z90              : {fmt_mm(nucleation.z_90)}',
+        f'CNT z_frozen_50      : {fmt_mm(nucleation.z_frozen_50)}',
+        f'CNT z_frozen_10      : {fmt_mm(nucleation.z_frozen_10)}',
+        f'CNT z_frozen_90      : {fmt_mm(nucleation.z_frozen_90)}',
         f'Parametric CNT z50   : {fmt_range_mm(parametric.z50_arr_mm)}',
         f'P(liquid) at end     : {nucleation.P_survival[-1]:.4f}',
         '',
@@ -164,7 +164,11 @@ def create_figure(
     ax.plot(z_mm, nucleation.P_survival, 'darkorange', lw=2.5, label='P(liquid, not nucleated)')
     ax.axhline(0.5, color='k', ls='--', lw=1, label='50% frozen')
     ax.axhline(0.1, color='k', ls=':', lw=1, label='90% frozen')
-    for zv, lab in [(nucleation.z_10, 'z10'), (nucleation.z_50, 'z50 (median)'), (nucleation.z_90, 'z90')]:
+    for zv, lab in [
+        (nucleation.z_frozen_10, 'z_frozen_10'),
+        (nucleation.z_frozen_50, 'z_frozen_50'),
+        (nucleation.z_frozen_90, 'z_frozen_90'),
+    ]:
         if np.isfinite(zv):
             ax.axvline(zv * 1e3, color='darkorange', ls=':', lw=1, alpha=0.8)
             ax.text(zv * 1e3 + 0.05, 0.55, lab, fontsize=8, color='darkorange')

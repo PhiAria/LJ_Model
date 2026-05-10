@@ -14,9 +14,9 @@ class NucleationResult:
     integrand: np.ndarray
     cumulative_integral: np.ndarray
     P_survival: np.ndarray
-    z_10: float
-    z_50: float
-    z_90: float
+    z_frozen_10: float
+    z_frozen_50: float
+    z_frozen_90: float
     freeze_mechanism_label: str
 
     def report_lines(self) -> list[str]:
@@ -25,9 +25,9 @@ class NucleationResult:
             '=' * 60,
             'NUCLEATION STATISTICS  (CNT, homogeneous)',
             '=' * 60,
-            f'z_10 (10% frozen) : {fmt_mm(self.z_10)}',
-            f'z_50 (median)     : {fmt_mm(self.z_50)}',
-            f'z_90 (90% frozen) : {fmt_mm(self.z_90)}',
+            f'z_frozen_10 (10% frozen) : {fmt_mm(self.z_frozen_10)}',
+            f'z_frozen_50 (median)     : {fmt_mm(self.z_frozen_50)}',
+            f'z_frozen_90 (90% frozen) : {fmt_mm(self.z_frozen_90)}',
             f'P_survival at end : {self.P_survival[-1]:.4f}',
             f'Interpretation     : {self.freeze_mechanism_label}',
         ]
@@ -74,8 +74,8 @@ def fmt_range_mm(values_mm: np.ndarray) -> str:
 
 
 def freeze_mechanism_text(solution: SimulationResult, nucleation_result: 'NucleationResult') -> str:
-    if np.isfinite(nucleation_result.z_50) and nucleation_result.z_50 <= solution.z[-1] + 1e-12:
-        return f'CNT median nucleation predicted by z ≈ {nucleation_result.z_50 * 1e3:.2f} mm'
+    if np.isfinite(nucleation_result.z_frozen_50) and nucleation_result.z_frozen_50 <= solution.z[-1] + 1e-12:
+        return f'CNT median nucleation predicted by z ≈ {nucleation_result.z_frozen_50 * 1e3:.2f} mm'
     if solution.termination_reason == 'freeze':
         return 'Ended by empirical freeze onset before CNT median nucleation.'
     if solution.termination_reason == 'breakup':
@@ -95,9 +95,9 @@ def compute_survival(params: JetParams, solution: SimulationResult) -> Nucleatio
         integrand=integrand,
         cumulative_integral=cumulative_integral,
         P_survival=P_survival,
-        z_10=find_z_at_prob(solution.z, P_survival, 0.90),
-        z_50=find_z_at_prob(solution.z, P_survival, 0.50),
-        z_90=find_z_at_prob(solution.z, P_survival, 0.10),
+        z_frozen_10=find_z_at_prob(solution.z, P_survival, 0.90),
+        z_frozen_50=find_z_at_prob(solution.z, P_survival, 0.50),
+        z_frozen_90=find_z_at_prob(solution.z, P_survival, 0.10),
         freeze_mechanism_label='',
     )
     return NucleationResult(
@@ -105,9 +105,9 @@ def compute_survival(params: JetParams, solution: SimulationResult) -> Nucleatio
         integrand=integrand,
         cumulative_integral=cumulative_integral,
         P_survival=P_survival,
-        z_10=provisional.z_10,
-        z_50=provisional.z_50,
-        z_90=provisional.z_90,
+        z_frozen_10=provisional.z_frozen_10,
+        z_frozen_50=provisional.z_frozen_50,
+        z_frozen_90=provisional.z_frozen_90,
         freeze_mechanism_label=freeze_mechanism_text(solution, provisional),
     )
 
@@ -126,7 +126,7 @@ def run_parametric_study(base_params: JetParams, T_range: np.ndarray | None = No
         nucleation = compute_survival(case_params, solution)
         breakup_arr_mm.append(solution.breakup_length * 1e3)
         end_surface_temp_arr_K.append(solution.T_surface[-1])
-        z50_arr_mm.append(nucleation.z_50 * 1e3 if np.isfinite(nucleation.z_50) else float('nan'))
+        z50_arr_mm.append(nucleation.z_frozen_50 * 1e3 if np.isfinite(nucleation.z_frozen_50) else float('nan'))
         if solution.freeze_position is not None:
             z_hard_arr_mm.append(solution.freeze_position * 1e3)
         else:
