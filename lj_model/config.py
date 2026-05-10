@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-
 from .solvents import get_solvent_properties
 
 
@@ -14,6 +13,9 @@ class ModelSwitches:
     use_diffusion_limit: bool = True
     use_breakup_length_model: bool = True
     freeze_model: str = 'empirical_backstop'
+
+
+ParamUpdateValue = float | int | bool | str | ModelSwitches
 
 
 @dataclass(frozen=True)
@@ -64,7 +66,7 @@ class JetParams:
     T_gas: float = 293.15
     alpha_evap: float = 0.9
 
-    def with_updates(self, **kwargs: object) -> 'JetParams':
+    def with_updates(self, **kwargs: ParamUpdateValue) -> 'JetParams':
         return replace(self, **kwargs)
 
     @property

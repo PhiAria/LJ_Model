@@ -192,7 +192,7 @@ def canonical_solvent_name(name: str) -> str:
     for canonical, props in SOLVENT_DATABASE.items():
         if key == canonical or key in props.aliases:
             return canonical
-    supported = ', '.join(['ACN', 'water', 'EtOH', 'Acetone', 'MeOH', 'Cyclohexane'])
+    supported = ', '.join(dict.fromkeys(props.name for props in SOLVENT_DATABASE.values()))
     raise ValueError(f'Unsupported solvent "{name}". Supported solvents: {supported}.')
 
 
