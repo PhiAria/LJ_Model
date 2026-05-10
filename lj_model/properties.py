@@ -37,7 +37,8 @@ def liquid_surface_tension(T: float, params: JetParams) -> float:
     is_water = canonical_solvent_name(params.solvent) == 'water'
     if not params.switches.use_temp_dependent_properties:
         return max(solvent.sigma_ref_N_per_m, params.sigma_min)
-    T_eval = clamp_temperature(T, params, params.T_property_min, min(params.T_property_critical_max, params.T_critical - 1.0))
+    t_high = max(params.T_property_min + 1e-6, min(params.T_property_critical_max, params.T_critical - 1.0))
+    T_eval = clamp_temperature(T, params, params.T_property_min, t_high)
     if is_water:
         tau = max(1.0 - T_eval / params.T_critical, 1e-9)
         sigma = 0.2358 * tau**1.256 * (1.0 - 0.625 * tau)
@@ -75,7 +76,7 @@ def liquid_dynamic_viscosity(T: float, params: JetParams) -> float:
 
 def vapor_pressure(T: float, params: JetParams) -> float:
     solvent = get_solvent_properties(params.solvent)
-    T_c = clamp_temperature(T - 273.15, params, solvent.antoine_min_C, solvent.antoine_max_C)
+    T_c = float(np.clip(T - 273.15, solvent.antoine_min_C, solvent.antoine_max_C))
     # Antoine constants use log10(P_mmHg). This is an engineering-range approximation.
     p_mmHg = 10 ** (solvent.antoine_A - solvent.antoine_B / (solvent.antoine_C + T_c))
     return float(p_mmHg * 133.322368)

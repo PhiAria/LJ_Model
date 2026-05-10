@@ -8,6 +8,7 @@ from .evaporation import diffusion_limited_flux, hertz_knudsen_flux
 from .jet_model import solve_jet
 from .nucleation import compute_survival
 from .properties import liquid_dynamic_viscosity, liquid_heat_capacity, liquid_surface_tension
+from .solvents import SOLVENT_DATABASE
 
 
 def run_smoke_tests() -> list[str]:
@@ -42,8 +43,8 @@ def run_smoke_tests() -> list[str]:
     assert abs(fixed_mode.breakup_length - 3e-3) < 1e-12
     assert fixed_mode.termination_reason == 'breakup'
 
-    for solvent in ['ACN', 'water', 'EtOH', 'Acetone', 'MeOH', 'Cyclohexane']:
-        solvent_params = select_solvent(params, solvent)
+    for solvent_name in dict.fromkeys(solvent.name for solvent in SOLVENT_DATABASE.values()):
+        solvent_params = select_solvent(params, solvent_name)
         assert solvent_params.rho_l > 500.0
         assert solvent_params.M > 0.0
         assert liquid_dynamic_viscosity(solvent_params.T_nozzle, solvent_params) > 0.0

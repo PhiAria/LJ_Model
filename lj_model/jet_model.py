@@ -185,7 +185,7 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
     else:
         breakup_length = params.fixed_breakup_length
         breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
-        breakup_source = f'fixed user value ({params.fixed_breakup_length * 1e3:.2f} mm)'
+        breakup_source = 'fixed user value'
     Re = params.rho_l * params.v_nozzle * params.d_nozzle / liquid_dynamic_viscosity(params.T_nozzle, params)
     cp_nozzle = liquid_heat_capacity(params.T_nozzle, params)
     sigma_nozzle = liquid_surface_tension(params.T_nozzle, params)
