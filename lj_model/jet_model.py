@@ -16,6 +16,8 @@ from .properties import (
     liquid_thermal_conductivity,
 )
 
+MIN_BREAKUP_GROWTH_RATE = 1e-12
+
 
 @dataclass(frozen=True)
 class NozzleDiagnostics:
@@ -159,7 +161,7 @@ def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None)
     seed = np.clip(params.breakup_initial_amplitude_fraction, 1e-8, 0.9)
     final = np.clip(params.breakup_final_amplitude_fraction, seed + 1e-8, 0.95)
     growth_log = np.log(final / seed)
-    tb = growth_log / max(omega_fastest, 1e-12)
+    tb = growth_log / max(omega_fastest, MIN_BREAKUP_GROWTH_RATE)
     return float(params.v_nozzle * tb), float(tb), float(We), float(Oh)
 
 

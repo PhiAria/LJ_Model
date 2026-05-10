@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Union
 from .solvents import get_solvent_properties
 
 
@@ -15,7 +16,7 @@ class ModelSwitches:
     freeze_model: str = 'empirical_backstop'
 
 
-ParamUpdateValue = float | int | bool | str | ModelSwitches
+ParamUpdateValue = Union[float, int, bool, str, ModelSwitches]
 
 
 @dataclass(frozen=True)

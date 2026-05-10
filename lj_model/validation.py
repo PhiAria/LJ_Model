@@ -43,8 +43,8 @@ def run_smoke_tests() -> list[str]:
     assert abs(fixed_mode.breakup_length - 3e-3) < 1e-12
     assert fixed_mode.termination_reason == 'breakup'
 
-    for solvent_name in dict.fromkeys(solvent.name for solvent in SOLVENT_DATABASE.values()):
-        solvent_params = select_solvent(params, solvent_name)
+    for solvent in SOLVENT_DATABASE.values():
+        solvent_params = select_solvent(params, solvent.name)
         assert solvent_params.rho_l > 500.0
         assert solvent_params.M > 0.0
         assert liquid_dynamic_viscosity(solvent_params.T_nozzle, solvent_params) > 0.0
