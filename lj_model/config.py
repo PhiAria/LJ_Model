@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from typing import Union
-from .solvents import get_solvent_properties
+from .solvents import SOLVENT_DATABASE, get_solvent_properties
 
 
 @dataclass(frozen=True)
@@ -53,6 +53,8 @@ class JetParams:
     wave_amplitude_max: float = 0.9
     breakup_initial_amplitude_fraction: float = 1e-4
     breakup_final_amplitude_fraction: float = 0.3
+    breakup_correlation_coefficient: float = 13.0
+    breakup_calibration_factor: float = 0.65
     breakup_viscous_coefficient: float = 3.0
     fixed_breakup_length: float = 3e-3
     v_guard_min: float = 1e-12
@@ -95,6 +97,10 @@ def make_default_params(solvent: str = 'water') -> JetParams:
     return select_solvent(JetParams(), solvent)
 
 
+def available_solvent_names() -> tuple[str, ...]:
+    return tuple(props.name for props in SOLVENT_DATABASE.values())
+
+
 def select_solvent(params: JetParams, solvent: str) -> JetParams:
     props = get_solvent_properties(solvent)
     return replace(
@@ -111,6 +117,22 @@ def select_solvent(params: JetParams, solvent: str) -> JetParams:
         T_property_min=max(params.T_guard_min, props.melting_point_K - 25.0),
         T_property_max=min(params.T_guard_max, props.critical_temperature_K - 5.0),
         T_nucl_min=max(params.T_guard_min, props.melting_point_K - 40.0),
+    )
+
+
+def build_user_params(
+    selected_solvent: str = 'water',
+    use_computed_breakup_length: bool = True,
+    fixed_breakup_length_mm: float = 3.0,
+    breakup_calibration_factor: float = 0.65,
+    breakup_viscous_coefficient: float = 3.0,
+) -> JetParams:
+    params = make_default_params(selected_solvent)
+    return params.with_updates(
+        switches=replace(params.switches, use_breakup_length_model=use_computed_breakup_length),
+        fixed_breakup_length=max(fixed_breakup_length_mm, 0.0) * 1e-3,
+        breakup_calibration_factor=breakup_calibration_factor,
+        breakup_viscous_coefficient=breakup_viscous_coefficient,
     )
 
 
@@ -132,13 +154,17 @@ def initial_condition_lines(params: JetParams) -> list[str]:
 
 def model_switch_lines(params: JetParams) -> list[str]:
     switches = params.switches
+    breakup_mode = 'computed from laminar-jet correlation' if switches.use_breakup_length_model else f'fixed user value ({params.fixed_breakup_length * 1e3:.2f} mm)'
     return [
         f'use_radial_profile            : {switches.use_radial_profile}',
         f'use_surface_waves             : {switches.use_surface_waves}',
         f'use_temp_dependent_properties : {switches.use_temp_dependent_properties}',
         f'use_back_pressure             : {switches.use_back_pressure}',
         f'use_diffusion_limit           : {switches.use_diffusion_limit} (applies only for Kn < {params.diffusion_limit_kn_threshold:g})',
+        f'breakup_mode                  : {breakup_mode}',
         f'use_breakup_length_model      : {switches.use_breakup_length_model} (fixed fallback = {params.fixed_breakup_length * 1e3:.2f} mm)',
+        f'breakup_correlation           : Lb/D = {params.breakup_calibration_factor:.2f} × {params.breakup_correlation_coefficient:.1f} × sqrt(We) × (1 + {params.breakup_viscous_coefficient:.1f} Oh)',
+        f'breakup_limitations           : laminar capillary regime only; aerodynamic breakup and nozzle-forcing spectra are not modeled',
         f'freeze_model                  : {switches.freeze_model} (empirical freeze onset at {params.T_freeze:.2f} K; CNT remains a liquid-branch diagnostic)',
         f'velocity_assumption           : constant axial speed from incompressible surface recession continuity',
         f'alpha_evap                    : {params.alpha_evap}',
