@@ -68,6 +68,19 @@ def run_smoke_tests() -> list[str]:
             pass
         else:
             raise AssertionError(f'fixed_breakup_length_mm={invalid_length_mm} should raise ValueError.')
+    for invalid_calibration in (-0.1, 0.0):
+        try:
+            build_user_params(breakup_calibration_factor=invalid_calibration)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f'breakup_calibration_factor={invalid_calibration} should raise ValueError.')
+    try:
+        build_user_params(breakup_viscous_coefficient=-0.1)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError('Negative breakup_viscous_coefficient should raise ValueError.')
 
     for solvent in SOLVENT_DATABASE.values():
         solvent_params = select_solvent(params, solvent.name)

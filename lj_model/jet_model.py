@@ -165,6 +165,8 @@ def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None)
     Assumptions:
     - Laminar, capillary-dominated jet breakup (Rayleigh/Tomotika regime).
     - Breakup length scales with sqrt(We) and increases mildly with Oh.
+    - The baseline coefficient is params.breakup_correlation_coefficient (13 by default),
+      matching the nominal Sterling-Sleicher laminar-jet prefactor before calibration.
     - A user-visible calibration factor captures nozzle-specific disturbance level.
     - External aerodynamic atomization is out of scope.
     """
