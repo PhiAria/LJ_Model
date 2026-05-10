@@ -21,6 +21,7 @@ from .properties import (
 class NozzleDiagnostics:
     breakup_length: float
     breakup_time: float
+    breakup_source: str
     reynolds_number: float
     weber_number: float
     ohnesorge_number: float
@@ -50,7 +51,7 @@ class NozzleDiagnostics:
             f'  {diffusion_line}',
             f'Cooling rate (1-D)     : {self.cooling_rate_1d:.2e} K/m',
             f'Re={self.reynolds_number:.0f}  We={self.weber_number:.2f}  Oh={self.ohnesorge_number:.4f}',
-            f'Rayleigh breakup       : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_time * 1e6:.1f} us)',
+            f'Breakup length ({self.breakup_source}) : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_time * 1e6:.1f} us)',
             f'Fourier no. at breakup : {self.fourier_breakup:.3f}  (>1=isothermal, <0.1=strong gradient)',
             f'Delta relaxation len   : {self.delta_relax_length * 1e3:.2f} mm',
             f'Quasi-steady dT_surf   : {self.delta_t_quasisteady:.1f} K below mean',
@@ -86,6 +87,7 @@ class SimulationResult:
     m_evap_rate_diff: np.ndarray
     M_dot_evap: float
     breakup_length: float
+    breakup_source: str
     termination_reason: str
     termination_position: float
     freeze_position: float | None
@@ -127,6 +129,7 @@ class SimulationResult:
             f'  r         = {self.r[-1] * 1e6:.3f} μm',
             '',
             f'Total evaporation rate: {self.M_dot_evap * 1e9:.3f} ng/s',
+            f'Breakup source       : {self.breakup_source}',
         ]
 
 
@@ -137,13 +140,26 @@ def adiabatic_freeze_fraction(params: JetParams, T_surface: float) -> float:
 
 
 def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None) -> tuple[float, float, float, float]:
+    """
+    Convective Rayleigh breakup estimate with viscous damping.
+
+    Assumptions:
+    - Axisymmetric capillary mode near kR ≈ 0.697 (Tomotika/Rayleigh fastest mode).
+    - Disturbance grows exponentially while convecting with the mean jet speed.
+    - Viscosity reduces the inviscid growth rate using 1/(1 + C_oh*Oh).
+    - Initial/final disturbance amplitudes are user-tunable fractions of jet radius.
+    """
     T_eval = params.T_nozzle if T_ref_local is None else T_ref_local
     sigma_local = liquid_surface_tension(T_eval, params)
     mu_local = liquid_dynamic_viscosity(T_eval, params)
     We = params.rho_l * params.v_nozzle**2 * (2.0 * params.r_nozzle) / sigma_local
     Oh = mu_local / np.sqrt(params.rho_l * sigma_local * 2.0 * params.r_nozzle)
-    omega = np.sqrt(sigma_local / (params.rho_l * params.r_nozzle**3))
-    tb = np.log(1e4) / omega
+    omega_capillary = np.sqrt(sigma_local / (params.rho_l * params.r_nozzle**3))
+    omega_fastest = 0.343 * omega_capillary / (1.0 + params.breakup_viscous_coefficient * Oh)
+    seed = np.clip(params.breakup_initial_amplitude_fraction, 1e-8, 0.9)
+    final = np.clip(params.breakup_final_amplitude_fraction, seed + 1e-8, 0.95)
+    growth_log = np.log(final / seed)
+    tb = growth_log / max(omega_fastest, 1e-12)
     return float(params.v_nozzle * tb), float(tb), float(We), float(Oh)
 
 
@@ -161,7 +177,15 @@ def surface_wave_area_factor(params: JetParams, r: float, z: float, sigma_local:
 
 
 def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
-    breakup_length, breakup_time, We, Oh = rayleigh_breakup_length(params)
+    computed_breakup_length, computed_breakup_time, We, Oh = rayleigh_breakup_length(params)
+    if params.switches.use_breakup_length_model:
+        breakup_length = computed_breakup_length
+        breakup_time = computed_breakup_time
+        breakup_source = 'computed Rayleigh-Tomotika'
+    else:
+        breakup_length = params.fixed_breakup_length
+        breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
+        breakup_source = f'fixed user value ({params.fixed_breakup_length * 1e3:.2f} mm)'
     Re = params.rho_l * params.v_nozzle * params.d_nozzle / liquid_dynamic_viscosity(params.T_nozzle, params)
     cp_nozzle = liquid_heat_capacity(params.T_nozzle, params)
     sigma_nozzle = liquid_surface_tension(params.T_nozzle, params)
@@ -177,6 +201,7 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
     return NozzleDiagnostics(
         breakup_length=breakup_length,
         breakup_time=breakup_time,
+        breakup_source=breakup_source,
         reynolds_number=float(Re),
         weber_number=We,
         ohnesorge_number=Oh,
@@ -373,6 +398,7 @@ def solve_jet(params: JetParams) -> SimulationResult:
         m_evap_rate_diff=m_evap_rate_diff,
         M_dot_evap=M_dot_evap,
         breakup_length=nozzle.breakup_length,
+        breakup_source=nozzle.breakup_source,
         termination_reason=termination_reason,
         termination_position=termination_position,
         freeze_position=freeze_position,

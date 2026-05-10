@@ -79,7 +79,7 @@ def freeze_mechanism_text(solution: SimulationResult, nucleation_result: 'Nuclea
     if solution.termination_reason == 'freeze':
         return 'Ended by empirical freeze onset before CNT median nucleation.'
     if solution.termination_reason == 'breakup':
-        return 'Ended by Rayleigh breakup before empirical freeze onset or CNT median nucleation.'
+        return f'Ended by breakup threshold ({solution.breakup_source}) before empirical freeze onset or CNT median nucleation.'
     return f'Ended by {solution.termination_reason.replace("_", " ")}.'
 
 

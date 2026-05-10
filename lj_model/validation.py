@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import numpy as np
 
-from .config import make_default_params
+from .config import make_default_params, select_solvent
 from .evaporation import diffusion_limited_flux, hertz_knudsen_flux
 from .jet_model import solve_jet
 from .nucleation import compute_survival
@@ -29,6 +30,24 @@ def run_smoke_tests() -> list[str]:
     solution = solve_jet(params)
     assert solution.termination_reason == 'breakup'
     assert solution.z[-1] <= solution.breakup_length + 1e-9
+    assert solution.breakup_source.startswith('computed')
+
+    fixed_mode = solve_jet(
+        params.with_updates(
+            switches=replace(params.switches, use_breakup_length_model=False),
+            fixed_breakup_length=3e-3,
+        )
+    )
+    assert fixed_mode.breakup_source.startswith('fixed')
+    assert abs(fixed_mode.breakup_length - 3e-3) < 1e-12
+    assert fixed_mode.termination_reason == 'breakup'
+
+    for solvent in ['ACN', 'water', 'EtOH', 'Acetone', 'MeOH', 'Cyclohexane']:
+        solvent_params = select_solvent(params, solvent)
+        assert solvent_params.rho_l > 500.0
+        assert solvent_params.M > 0.0
+        assert liquid_dynamic_viscosity(solvent_params.T_nozzle, solvent_params) > 0.0
+        assert liquid_surface_tension(solvent_params.T_nozzle, solvent_params) > 0.0
 
     nucleation = compute_survival(params, solution)
     survival_delta = np.diff(nucleation.P_survival)
@@ -37,6 +56,8 @@ def run_smoke_tests() -> list[str]:
     return [
         'Property correlations return plausible values at 293 K and 273 K.',
         'Hertz-Knudsen and continuum diffusion reference fluxes are positive.',
-        'Default ODE integration terminates at or before Rayleigh breakup.',
+        'Default ODE integration terminates at or before selected breakup length.',
+        'Breakup model switch supports computed and fixed-length operation.',
+        'Supported solvents expose positive transport/thermo properties.',
         'CNT survival curve is monotonically non-increasing.',
     ]
