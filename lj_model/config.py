@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from typing import Union
+from .solvents import get_solvent_properties
 
 
 @dataclass(frozen=True)
@@ -10,19 +12,24 @@ class ModelSwitches:
     use_temp_dependent_properties: bool = True
     use_back_pressure: bool = True
     use_diffusion_limit: bool = True
+    use_breakup_length_model: bool = True
     freeze_model: str = 'empirical_backstop'
+
+
+ParamUpdateValue = Union[float, int, bool, str, ModelSwitches]
 
 
 @dataclass(frozen=True)
 class JetParams:
     switches: ModelSwitches = field(default_factory=ModelSwitches)
+    solvent: str = 'water'
 
     # Fundamental constants
     R_gas: float = 8.314
     kB: float = 1.380649e-23
-    M: float = 0.018
-    rho_l: float = 1000.0
-    h_vap: float = 2.5e6
+    M: float = 0.01801528
+    rho_l: float = 998.2
+    h_vap: float = 2.45e6
     h_fus: float = 3.34e5
     T_critical: float = 647.096
     T_ref: float = 293.15
@@ -44,6 +51,10 @@ class JetParams:
     k_thermal_min: float = 0.15
     wave_seed_fraction: float = 0.01
     wave_amplitude_max: float = 0.9
+    breakup_initial_amplitude_fraction: float = 1e-4
+    breakup_final_amplitude_fraction: float = 0.3
+    breakup_viscous_coefficient: float = 3.0
+    fixed_breakup_length: float = 3e-3
     v_guard_min: float = 1e-12
     diffusion_limit_kn_threshold: float = 0.1
 
@@ -56,7 +67,7 @@ class JetParams:
     T_gas: float = 293.15
     alpha_evap: float = 0.9
 
-    def with_updates(self, **kwargs: float) -> 'JetParams':
+    def with_updates(self, **kwargs: ParamUpdateValue) -> 'JetParams':
         return replace(self, **kwargs)
 
     @property
@@ -80,8 +91,27 @@ class JetParams:
         return self.rho_l * self.Q_flow
 
 
-def make_default_params() -> JetParams:
-    return JetParams()
+def make_default_params(solvent: str = 'water') -> JetParams:
+    return select_solvent(JetParams(), solvent)
+
+
+def select_solvent(params: JetParams, solvent: str) -> JetParams:
+    props = get_solvent_properties(solvent)
+    return replace(
+        params,
+        solvent=props.name,
+        M=props.molar_mass_kg_per_mol,
+        rho_l=props.density_kg_per_m3,
+        h_vap=props.latent_heat_vap_J_per_kg,
+        h_fus=props.latent_heat_fus_J_per_kg,
+        T_critical=props.critical_temperature_K,
+        T_freeze=props.melting_point_K,
+        D_v_ref=props.vapor_diffusivity_ref_m2_per_s,
+        d_molecule=props.molecule_diameter_m,
+        T_property_min=max(params.T_guard_min, props.melting_point_K - 25.0),
+        T_property_max=min(params.T_guard_max, props.critical_temperature_K - 5.0),
+        T_nucl_min=max(params.T_guard_min, props.melting_point_K - 40.0),
+    )
 
 
 def initial_condition_lines(params: JetParams) -> list[str]:
@@ -89,6 +119,7 @@ def initial_condition_lines(params: JetParams) -> list[str]:
         '=' * 60,
         'INITIAL CONDITIONS',
         '=' * 60,
+        f'Solvent             : {params.solvent}',
         f'Nozzle diameter     : {params.d_nozzle * 1e6:.1f} um',
         f'Flow rate           : {params.Q_flow * 60 * 1e6:.2f} uL/min',
         f'Jet velocity        : {params.v_nozzle:.1f} m/s',
@@ -107,6 +138,7 @@ def model_switch_lines(params: JetParams) -> list[str]:
         f'use_temp_dependent_properties : {switches.use_temp_dependent_properties}',
         f'use_back_pressure             : {switches.use_back_pressure}',
         f'use_diffusion_limit           : {switches.use_diffusion_limit} (applies only for Kn < {params.diffusion_limit_kn_threshold:g})',
+        f'use_breakup_length_model      : {switches.use_breakup_length_model} (fixed fallback = {params.fixed_breakup_length * 1e3:.2f} mm)',
         f'freeze_model                  : {switches.freeze_model} (empirical freeze onset at {params.T_freeze:.2f} K; CNT remains a liquid-branch diagnostic)',
         f'velocity_assumption           : constant axial speed from incompressible surface recession continuity',
         f'alpha_evap                    : {params.alpha_evap}',

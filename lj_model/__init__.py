@@ -1,7 +1,8 @@
-from .config import JetParams, ModelSwitches, make_default_params
+from .config import JetParams, ModelSwitches, make_default_params, select_solvent
 from .jet_model import NozzleDiagnostics, SimulationResult, compute_nozzle_diagnostics, solve_jet
 from .nucleation import NucleationResult, ParametricStudyResult, compute_survival, run_parametric_study
 from .plotting import create_figure
+from .solvents import SOLVENT_DATABASE, SolventProperties, get_solvent_properties
 from .validation import run_smoke_tests
 
 __all__ = [
@@ -12,10 +13,14 @@ __all__ = [
     "NucleationResult",
     "ParametricStudyResult",
     "make_default_params",
+    "select_solvent",
     "compute_nozzle_diagnostics",
     "solve_jet",
     "compute_survival",
     "run_parametric_study",
     "create_figure",
+    "SolventProperties",
+    "SOLVENT_DATABASE",
+    "get_solvent_properties",
     "run_smoke_tests",
 ]

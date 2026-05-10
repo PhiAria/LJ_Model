@@ -33,7 +33,7 @@ def termination_label(solution: SimulationResult, nucleation: NucleationResult) 
     if solution.termination_reason == 'freeze':
         return 'Termination context: empirical freeze onset backstop'
     if solution.termination_reason == 'breakup':
-        return 'Termination context: Rayleigh breakup'
+        return f'Termination context: breakup threshold ({solution.breakup_source})'
     return f'Termination context: {solution.termination_reason.replace("_", " ")}'
 
 
@@ -62,8 +62,9 @@ def build_summary(params: JetParams, solution: SimulationResult, nucleation: Nuc
         '',
         f'Verdict              : {severity_verdict(solution, nucleation)}',
         f'Termination          : {termination_label(solution, nucleation)}',
+        f'Solvent              : {params.solvent}',
         f'T_surface (end)      : {solution.T_surface[-1]:.2f} K',
-        f'Breakup length       : {solution.breakup_length * 1e3:.2f} mm',
+        f'Breakup length       : {solution.breakup_length * 1e3:.2f} mm ({solution.breakup_source})',
         '',
         f'T_nozzle             : {params.T_nozzle:.2f} K',
         f'P_chamber            : {params.P_chamber:.2e} Pa',
@@ -116,9 +117,9 @@ def create_figure(
     summary = build_summary(params, solution, nucleation, parametric)
     fig, axes = plt.subplots(3, 3, figsize=(17, 13))
     fig.suptitle(
-        f'Liquid jet model | P_chamber={params.P_chamber:.2e} Pa | P_back={params.P_back:.2e} Pa | '
+        f'Liquid jet model ({params.solvent}) | P_chamber={params.P_chamber:.2e} Pa | P_back={params.P_back:.2e} Pa | '
         f'radial profile={params.switches.use_radial_profile} | surface waves={params.switches.use_surface_waves} | '
-        f'T-dependent props={params.switches.use_temp_dependent_properties}',
+        f'T-dependent props={params.switches.use_temp_dependent_properties} | breakup={solution.breakup_source}',
         fontsize=11,
         y=1.01,
     )
@@ -209,7 +210,7 @@ def create_figure(
             color='dimgray',
         )
     ax.plot(parametric.T_range, parametric.z_hard_arr_mm, 'k--', lw=1.5, marker='s', ms=3, label=f'Empirical freeze onset ({params.T_freeze:.0f} K)')
-    ax.plot(parametric.T_range, parametric.breakup_arr_mm, color='gray', ls=':', lw=1.5, label='Predicted breakup length')
+    ax.plot(parametric.T_range, parametric.breakup_arr_mm, color='gray', ls=':', lw=1.5, label='Selected breakup length')
     ax.set_xlabel('Nozzle temperature, T_nozzle (K)')
     ax.set_ylabel('Axial position (mm)')
     ax.set_title('Freeze position vs nozzle temperature')
