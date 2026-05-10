@@ -12,6 +12,13 @@ from .solvents import SOLVENT_DATABASE
 
 
 def run_smoke_tests() -> list[str]:
+    def expect_value_error(**kwargs: float) -> None:
+        try:
+            build_user_params(**kwargs)
+        except ValueError:
+            return
+        raise AssertionError(f'Expected ValueError for build_user_params({kwargs}).')
+
     params = make_default_params()
 
     cp_293 = liquid_heat_capacity(293.15, params)
@@ -62,25 +69,10 @@ def run_smoke_tests() -> list[str]:
     assert user_diag.computed_breakup_length > 0.0
 
     for invalid_length_mm in (-1.0, 0.0):
-        try:
-            build_user_params(fixed_breakup_length_mm=invalid_length_mm)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f'fixed_breakup_length_mm={invalid_length_mm} should raise ValueError.')
+        expect_value_error(fixed_breakup_length_mm=invalid_length_mm)
     for invalid_calibration in (-0.1, 0.0):
-        try:
-            build_user_params(breakup_calibration_factor=invalid_calibration)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError(f'breakup_calibration_factor={invalid_calibration} should raise ValueError.')
-    try:
-        build_user_params(breakup_viscous_coefficient=-0.1)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError('Negative breakup_viscous_coefficient should raise ValueError.')
+        expect_value_error(breakup_calibration_factor=invalid_calibration)
+    expect_value_error(breakup_viscous_coefficient=-0.1)
 
     for solvent in SOLVENT_DATABASE.values():
         solvent_params = select_solvent(params, solvent.name)
