@@ -171,13 +171,15 @@ def rayleigh_breakup_length(params: JetParams, T_ref_local: float | None = None)
     T_eval = params.T_nozzle if T_ref_local is None else T_ref_local
     sigma_local = liquid_surface_tension(T_eval, params)
     mu_local = liquid_dynamic_viscosity(T_eval, params)
-    if params.d_nozzle <= 0.0 or params.rho_l <= 0.0:
-        raise ValueError('Laminar breakup correlation requires positive nozzle diameter and liquid density.')
+    if params.d_nozzle <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires a positive nozzle diameter, got {params.d_nozzle}.')
+    if params.rho_l <= 0.0:
+        raise ValueError(f'Laminar breakup correlation requires a positive liquid density, got {params.rho_l}.')
     if sigma_local <= 0.0:
-        raise ValueError('Laminar breakup correlation requires positive surface tension.')
+        raise ValueError(f'Laminar breakup correlation requires positive surface tension, got {sigma_local}.')
     We = params.rho_l * params.v_nozzle**2 * (2.0 * params.r_nozzle) / sigma_local
     if We <= 0.0:
-        raise ValueError('Laminar breakup correlation requires a positive Weber number.')
+        raise ValueError(f'Laminar breakup correlation requires a positive Weber number, got {We}.')
     Oh = mu_local / np.sqrt(params.rho_l * sigma_local * 2.0 * params.r_nozzle)
     breakup_length = (
         params.breakup_calibration_factor

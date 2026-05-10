@@ -127,8 +127,8 @@ def build_user_params(
     breakup_calibration_factor: float = 0.65,
     breakup_viscous_coefficient: float = 3.0,
 ) -> JetParams:
-    if fixed_breakup_length_mm < 0.0:
-        raise ValueError('fixed_breakup_length_mm must be non-negative.')
+    if fixed_breakup_length_mm <= 0.0:
+        raise ValueError('fixed_breakup_length_mm must be positive.')
     params = make_default_params(selected_solvent)
     return params.with_updates(
         switches=replace(params.switches, use_breakup_length_model=use_computed_breakup_length),

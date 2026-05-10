@@ -61,12 +61,12 @@ def run_smoke_tests() -> list[str]:
     assert user_diag.breakup_mode == 'fixed user value'
     assert user_diag.computed_breakup_length > 0.0
 
-    try:
-        build_user_params(fixed_breakup_length_mm=-1.0)
-    except ValueError:
-        pass
-    else:
-        raise AssertionError('Negative fixed breakup length should raise ValueError.')
+    for invalid_length_mm in (-1.0, 0.0):
+        try:
+            build_user_params(fixed_breakup_length_mm=invalid_length_mm)
+        except ValueError:
+            continue
+        raise AssertionError('Non-positive fixed breakup length should raise ValueError.')
 
     for solvent in SOLVENT_DATABASE.values():
         solvent_params = select_solvent(params, solvent.name)
