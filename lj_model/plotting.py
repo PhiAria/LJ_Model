@@ -194,7 +194,16 @@ def create_figure(
     if finite_z50.any():
         ax.plot(parametric.T_range, parametric.z50_arr_mm, 'darkorange', lw=2, marker='o', ms=4, label='CNT median z50')
     else:
-        ax.text(0.5, 0.72, 'CNT z₅₀ not reached — surface temperature stays above the homogeneous nucleation window before termination.', transform=ax.transAxes, ha='center', va='center', fontsize=9, color='dimgray', wrap=True)
+        ax.text(
+            0.5,
+            0.72,
+            'CNT z₅₀ not reached — surface temperature stays above\nthe homogeneous nucleation window before termination.',
+            transform=ax.transAxes,
+            ha='center',
+            va='center',
+            fontsize=9,
+            color='dimgray',
+        )
     ax.plot(parametric.T_range, parametric.z_hard_arr_mm, 'k--', lw=1.5, marker='s', ms=3, label=f'Empirical freeze onset ({params.T_freeze:.0f} K)')
     ax.plot(parametric.T_range, parametric.breakup_arr_mm, color='gray', ls=':', lw=1.5, label='Predicted breakup length')
     ax.set_xlabel('Nozzle temperature, T_nozzle (K)')

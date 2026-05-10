@@ -6,6 +6,8 @@ import numpy as np
 from .config import JetParams
 from .properties import clamp_temperature, vapor_pressure
 
+SQRT_TWO = np.sqrt(2.0)
+
 
 @dataclass(frozen=True)
 class FluxComponents:
@@ -21,7 +23,7 @@ class FluxComponents:
 def mean_free_path(T: float, P_total: float, params: JetParams) -> float:
     T_eval = clamp_temperature(T, params)
     P_eval = max(P_total, 1e-9)
-    return params.kB * T_eval / (np.sqrt(2.0) * np.pi * params.d_molecule**2 * P_eval)
+    return params.kB * T_eval / (SQRT_TWO * np.pi * params.d_molecule**2 * P_eval)
 
 
 def diffusion_coefficient_vapor(T: float, P_total: float, params: JetParams) -> float:
