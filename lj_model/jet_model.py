@@ -20,6 +20,9 @@ MIN_BREAKUP_GROWTH_RATE = 1e-12
 BREAKUP_MODEL_NAME = 'Sterling-Sleicher laminar capillary correlation'
 BREAKUP_MODEL_FORMULA = 'Lb/D = C_cal × 13 × sqrt(We) × (1 + C_Oh Oh)'
 BREAKUP_MODEL_LIMITATIONS = 'Laminar capillary breakup only; aerodynamic breakup and measured nozzle forcing are not modeled.'
+INSTABILITY_GROWTH_MODEL_NAME = 'Local instability-growth amplitude threshold'
+INSTABILITY_GROWTH_MODEL_FORMULA = 'da/dz = (C_omega * sqrt(sigma/(rho*r^3)) / (1 + C_mu*Oh)) / v * a;  breakup when a >= beta_c * r'
+INSTABILITY_GROWTH_MODEL_LIMITATIONS = 'Reduced-order local Rayleigh instability; calibrate C_omega, C_mu, a0/r, beta_c to experiment.'
 
 
 @dataclass(frozen=True)
@@ -46,6 +49,11 @@ class NozzleDiagnostics:
     delta_t_quasisteady: float
     kn_nozzle: float
     adiabatic_freeze_fraction: float
+    instability_growth_mode: bool = False
+    breakup_initial_amplitude_fraction: float = 1e-4
+    breakup_final_amplitude_fraction: float = 0.3
+    breakup_growth_prefactor: float = 0.34
+    breakup_viscous_damping_coefficient: float = 3.0
 
     def report_lines(self, params: JetParams) -> list[str]:
         diffusion_line = (
@@ -53,6 +61,21 @@ class NozzleDiagnostics:
             if self.flux.diffusion_applied
             else f'Diffusion limit      : gated off in {self.flux.regime} regime (raw continuum value {self.flux.diffusion_raw:.2e})'
         )
+        if self.instability_growth_mode:
+            breakup_len_line = (
+                f'Max integration len  : {self.breakup_length * 1e3:.2f} mm  (instability-growth mode; actual Lb set by amplitude event)'
+            )
+            ig_lines = [
+                f'IG growth prefactor  : C_omega = {self.breakup_growth_prefactor:.4f}',
+                f'IG viscous damping   : C_mu = {self.breakup_viscous_damping_coefficient:.2f}',
+                f'IG initial ampl.     : a0/r = {self.breakup_initial_amplitude_fraction:.2e}',
+                f'IG breakup threshold : beta_c = {self.breakup_final_amplitude_fraction:.2f}  (breakup when a >= beta_c * r)',
+            ]
+        else:
+            breakup_len_line = (
+                f'Selected breakup len   : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_source}, {self.breakup_time * 1e6:.1f} us)'
+            )
+            ig_lines = []
         return [
             '=' * 60,
             'DIAGNOSTICS',
@@ -66,8 +89,9 @@ class NozzleDiagnostics:
             f'Breakup model          : {self.breakup_model_name}',
             f'Breakup correlation    : {self.breakup_model_formula}',
             f'Breakup tuning         : C_cal={params.breakup_calibration_factor:.2f}, C_Oh={params.breakup_viscous_coefficient:.2f}',
-            f'Selected breakup len   : {self.breakup_length * 1e3:.2f} mm  ({self.breakup_source}, {self.breakup_time * 1e6:.1f} us)',
+            breakup_len_line,
             f'Computed reference Lb  : {self.computed_breakup_length * 1e3:.2f} mm  ({self.computed_breakup_time * 1e6:.1f} us)',
+            *ig_lines,
             f'Breakup caveat         : {self.breakup_model_limitations}',
             f'Fourier no. at breakup : {self.fourier_breakup:.3f}  (>1=isothermal, <0.1=strong gradient)',
             f'Delta relaxation len   : {self.delta_relax_length * 1e3:.2f} mm',
@@ -149,6 +173,7 @@ class SimulationResult:
             f'Breakup mode         : {self.nozzle_diagnostics.breakup_mode}',
             f'Breakup model        : {self.nozzle_diagnostics.breakup_model_name}',
             f'Breakup source       : {self.breakup_source}',
+            f'Breakup length       : {self.breakup_length * 1e3:.3f} mm',
         ]
 
 
@@ -209,16 +234,38 @@ def surface_wave_area_factor(params: JetParams, r: float, z: float, sigma_local:
 
 def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
     computed_breakup_length, computed_breakup_time, We, Oh = rayleigh_breakup_length(params)
-    if params.switches.use_breakup_length_model:
-        breakup_length = computed_breakup_length
-        breakup_time = computed_breakup_time
-        breakup_source = 'computed Sterling-Sleicher correlation'
-        breakup_mode = 'computed correlation'
-    else:
+    breakup_mode_switch = params.switches.breakup_mode
+
+    if breakup_mode_switch == 'instability_growth':
+        # Actual breakup position is determined during ODE integration by amplitude event.
+        # Use the max integration span as the positional fallback limit.
+        breakup_length = 0.05
+        breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
+        breakup_source = 'instability-growth amplitude threshold'
+        breakup_mode_str = 'instability_growth'
+        model_name = INSTABILITY_GROWTH_MODEL_NAME
+        model_formula = INSTABILITY_GROWTH_MODEL_FORMULA
+        model_limitations = INSTABILITY_GROWTH_MODEL_LIMITATIONS
+        instability_growth_mode = True
+    elif breakup_mode_switch == 'fixed' or not params.switches.use_breakup_length_model:
         breakup_length = params.fixed_breakup_length
         breakup_time = breakup_length / max(params.v_nozzle, params.v_guard_min)
         breakup_source = 'fixed user value'
-        breakup_mode = 'fixed user value'
+        breakup_mode_str = 'fixed user value'
+        model_name = BREAKUP_MODEL_NAME
+        model_formula = BREAKUP_MODEL_FORMULA
+        model_limitations = BREAKUP_MODEL_LIMITATIONS
+        instability_growth_mode = False
+    else:  # 'correlation' (default) with use_breakup_length_model=True
+        breakup_length = computed_breakup_length
+        breakup_time = computed_breakup_time
+        breakup_source = 'computed Sterling-Sleicher correlation'
+        breakup_mode_str = 'computed correlation'
+        model_name = BREAKUP_MODEL_NAME
+        model_formula = BREAKUP_MODEL_FORMULA
+        model_limitations = BREAKUP_MODEL_LIMITATIONS
+        instability_growth_mode = False
+
     Re = params.rho_l * params.v_nozzle * params.d_nozzle / liquid_dynamic_viscosity(params.T_nozzle, params)
     cp_nozzle = liquid_heat_capacity(params.T_nozzle, params)
     sigma_nozzle = liquid_surface_tension(params.T_nozzle, params)
@@ -235,10 +282,10 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
         breakup_length=breakup_length,
         breakup_time=breakup_time,
         breakup_source=breakup_source,
-        breakup_mode=breakup_mode,
-        breakup_model_name=BREAKUP_MODEL_NAME,
-        breakup_model_formula=BREAKUP_MODEL_FORMULA,
-        breakup_model_limitations=BREAKUP_MODEL_LIMITATIONS,
+        breakup_mode=breakup_mode_str,
+        breakup_model_name=model_name,
+        breakup_model_formula=model_formula,
+        breakup_model_limitations=model_limitations,
         computed_breakup_length=computed_breakup_length,
         computed_breakup_time=computed_breakup_time,
         reynolds_number=float(Re),
@@ -254,16 +301,58 @@ def compute_nozzle_diagnostics(params: JetParams) -> NozzleDiagnostics:
         delta_t_quasisteady=float(delta_t_quasisteady),
         kn_nozzle=float(kn_nozzle),
         adiabatic_freeze_fraction=freeze_fraction,
+        instability_growth_mode=instability_growth_mode,
+        breakup_initial_amplitude_fraction=params.breakup_initial_amplitude_fraction,
+        breakup_final_amplitude_fraction=params.breakup_final_amplitude_fraction,
+        breakup_growth_prefactor=params.breakup_growth_prefactor,
+        breakup_viscous_damping_coefficient=params.breakup_viscous_damping_coefficient,
     )
 
 
 def unpack_state(y: np.ndarray, params: JetParams) -> tuple[float, float, float]:
-    if params.switches.use_radial_profile:
-        T_mean, r, Delta = y
-    else:
-        T_mean, r = y
-        Delta = 0.0
-    return float(T_mean), float(r), float(Delta)
+    T_mean = float(y[0])
+    r = float(y[1])
+    Delta = float(y[2]) if params.switches.use_radial_profile else 0.0
+    return T_mean, r, Delta
+
+
+def _amplitude_state_index(params: JetParams) -> int:
+    """Return the index of the disturbance amplitude in the state vector."""
+    return 3 if params.switches.use_radial_profile else 2
+
+
+def unpack_amplitude(y: np.ndarray, params: JetParams) -> float:
+    """Extract disturbance amplitude from state vector; returns 0 if not present."""
+    idx = _amplitude_state_index(params)
+    return float(y[idx]) if idx < len(y) else 0.0
+
+
+def local_instability_growth_rate(r: float, sigma: float, mu: float, rho: float, params: JetParams) -> float:
+    """
+    Reduced-order local Rayleigh instability growth rate with viscous correction.
+
+    Uses the most-amplified Rayleigh mode prefactor calibrated by C_omega, and a
+    viscous damping term proportional to the Ohnesorge number.
+
+    Parameters
+    ----------
+    r      : local jet radius (m)
+    sigma  : local surface tension (N/m)
+    mu     : local dynamic viscosity (Pa s)
+    rho    : liquid density (kg/m^3)
+    params : JetParams carrying breakup_growth_prefactor and breakup_viscous_damping_coefficient
+
+    Returns
+    -------
+    omega : growth rate (1/s), lower-bounded by MIN_BREAKUP_GROWTH_RATE
+    """
+    r_eff = max(r, params.r_guard_min)
+    sigma_eff = max(sigma, params.sigma_min)
+    denom_Oh = max(np.sqrt(rho * sigma_eff * r_eff), 1e-30)
+    Oh = mu / denom_Oh
+    omega_inviscid = params.breakup_growth_prefactor * np.sqrt(sigma_eff / (rho * r_eff**3))
+    omega = omega_inviscid / max(1.0 + params.breakup_viscous_damping_coefficient * Oh, 1e-30)
+    return max(float(omega), MIN_BREAKUP_GROWTH_RATE)
 
 
 def surface_temperature_from_state(y: np.ndarray, params: JetParams) -> float:
@@ -284,6 +373,8 @@ def guard_state(y: np.ndarray, params: JetParams) -> tuple[float, float, float, 
 
 
 def build_jet_ode(params: JetParams) -> Callable[[float, np.ndarray], list[float]]:
+    instability_mode = params.switches.breakup_mode == 'instability_growth'
+
     def jet_ode(z: float, y: np.ndarray) -> list[float]:
         T_mean, r, Delta, T_surface, _ = guard_state(y, params)
         cp_local = liquid_heat_capacity(T_mean, params)
@@ -301,8 +392,19 @@ def build_jet_ode(params: JetParams) -> Callable[[float, np.ndarray], list[float
                 2.0 * q_s / (params.rho_l * cp_local * v_local * r)
                 - 8.0 * k_local * Delta / (params.rho_l * cp_local * v_local * r**2)
             )
-            return [float(dTmeandz), float(drdz), float(dDeltadz)]
-        return [float(dTmeandz), float(drdz)]
+            result: list[float] = [float(dTmeandz), float(drdz), float(dDeltadz)]
+        else:
+            result = [float(dTmeandz), float(drdz)]
+
+        if instability_mode:
+            a = max(unpack_amplitude(y, params), 0.0)
+            mu_local = liquid_dynamic_viscosity(T_surface, params)
+            omega = local_instability_growth_rate(r, sigma_local, mu_local, params.rho_l, params)
+            v_safe = max(v_local, params.v_guard_min)
+            dadz = (omega / v_safe) * a
+            result.append(float(dadz))
+
+        return result
 
     return jet_ode
 
@@ -338,12 +440,36 @@ def build_events(params: JetParams, breakup_length: float) -> list[Callable[[flo
     delta_guard_event.terminal = True
     delta_guard_event.direction = -1
 
-    return [freeze_event, breakup_event, radius_guard_event, temperature_guard_event, delta_guard_event]
+    events = [freeze_event, breakup_event, radius_guard_event, temperature_guard_event, delta_guard_event]
+
+    if params.switches.breakup_mode == 'instability_growth':
+        def amplitude_breakup_event(z: float, y: np.ndarray) -> float:
+            a = unpack_amplitude(y, params)
+            r = max(unpack_state(y, params)[1], params.r_guard_min)
+            return a - params.breakup_final_amplitude_fraction * r
+
+        amplitude_breakup_event.terminal = True
+        amplitude_breakup_event.direction = 1
+        events.append(amplitude_breakup_event)
+
+    return events
 
 
 def solve_jet(params: JetParams) -> SimulationResult:
     nozzle = compute_nozzle_diagnostics(params)
-    y0 = [params.T_nozzle, params.r_nozzle, 0.0] if params.switches.use_radial_profile else [params.T_nozzle, params.r_nozzle]
+    instability_mode = params.switches.breakup_mode == 'instability_growth'
+
+    if params.switches.use_radial_profile:
+        y0_base = [params.T_nozzle, params.r_nozzle, 0.0]
+    else:
+        y0_base = [params.T_nozzle, params.r_nozzle]
+
+    if instability_mode:
+        a0 = params.breakup_initial_amplitude_fraction * params.r_nozzle
+        y0 = y0_base + [a0]
+    else:
+        y0 = y0_base
+
     sol = solve_ivp(
         build_jet_ode(params),
         (0.0, 0.05),
@@ -388,34 +514,61 @@ def solve_jet(params: JetParams) -> SimulationResult:
     M_dot_evap = float(np.trapezoid(m_evap_rate, z))
 
     froze = sol.status == 1 and len(sol.t_events[0]) > 0
-    broke = sol.status == 1 and len(sol.t_events[1]) > 0
+    broke_by_position = sol.status == 1 and len(sol.t_events[1]) > 0
     radius_guard_hit = sol.status == 1 and len(sol.t_events[2]) > 0
     temperature_guard_hit = sol.status == 1 and len(sol.t_events[3]) > 0
     delta_guard_hit = sol.status == 1 and len(sol.t_events[4]) > 0
+    broke_by_amplitude = instability_mode and sol.status == 1 and len(sol.t_events[5]) > 0
+    broke = broke_by_position or broke_by_amplitude
+
     if froze:
         termination_reason = 'freeze'
         termination_position = float(sol.t_events[0][0])
         freeze_position = termination_position
-    elif broke:
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
+    elif broke_by_amplitude:
+        termination_reason = 'breakup'
+        termination_position = float(sol.t_events[5][0])
+        freeze_position = None
+        result_breakup_length = termination_position
+        result_breakup_source = 'instability-growth amplitude threshold'
+    elif broke_by_position:
         termination_reason = 'breakup'
         termination_position = float(sol.t_events[1][0])
         freeze_position = None
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
     elif radius_guard_hit:
         termination_reason = 'radius_guard'
         termination_position = float(z[-1])
         freeze_position = None
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
     elif temperature_guard_hit:
         termination_reason = 'temperature_guard'
         termination_position = float(z[-1])
         freeze_position = None
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
     elif delta_guard_hit:
         termination_reason = 'delta_guard'
         termination_position = float(z[-1])
         freeze_position = None
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
     else:
         termination_reason = 'max_length'
         termination_position = float(z[-1])
         freeze_position = None
+        result_breakup_length = nozzle.breakup_length
+        result_breakup_source = nozzle.breakup_source
+
+    within_breakup = (
+        termination_reason == 'breakup'
+        if instability_mode
+        else float(z[-1]) <= nozzle.breakup_length + 1e-12
+    )
 
     return SimulationResult(
         z=z,
@@ -436,14 +589,14 @@ def solve_jet(params: JetParams) -> SimulationResult:
         m_evap_rate_hk=m_evap_rate_hk,
         m_evap_rate_diff=m_evap_rate_diff,
         M_dot_evap=M_dot_evap,
-        breakup_length=nozzle.breakup_length,
-        breakup_source=nozzle.breakup_source,
+        breakup_length=result_breakup_length,
+        breakup_source=result_breakup_source,
         termination_reason=termination_reason,
         termination_position=termination_position,
         freeze_position=freeze_position,
         radius_guard_hit=radius_guard_hit,
         temperature_guard_hit=temperature_guard_hit,
         delta_guard_hit=delta_guard_hit,
-        within_breakup=float(z[-1]) <= nozzle.breakup_length + 1e-12,
+        within_breakup=within_breakup,
         nozzle_diagnostics=nozzle,
     )
