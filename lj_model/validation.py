@@ -125,7 +125,7 @@ def run_smoke_tests() -> list[str]:
         pass
 
     # Verify radial-profile off + instability_growth mode also terminates by breakup
-    ig_no_profile = build_user_params(breakup_mode='instability_growth').with_updates(
+    ig_no_profile = ig_params.with_updates(
         switches=replace(ig_params.switches, use_radial_profile=False)
     )
     ig_no_profile_sol = solve_jet(ig_no_profile)

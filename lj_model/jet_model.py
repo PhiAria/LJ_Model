@@ -350,8 +350,8 @@ def local_instability_growth_rate(r: float, sigma: float, mu: float, rho: float,
     sigma_eff = max(sigma, params.sigma_min)
     denom_Oh = max(np.sqrt(rho * sigma_eff * r_eff), 1e-30)
     Oh = mu / denom_Oh
-    omega_inv = params.breakup_growth_prefactor * np.sqrt(sigma_eff / (rho * r_eff**3))
-    omega = omega_inv / max(1.0 + params.breakup_viscous_damping_coefficient * Oh, 1e-30)
+    omega_inviscid = params.breakup_growth_prefactor * np.sqrt(sigma_eff / (rho * r_eff**3))
+    omega = omega_inviscid / max(1.0 + params.breakup_viscous_damping_coefficient * Oh, 1e-30)
     return max(float(omega), MIN_BREAKUP_GROWTH_RATE)
 
 

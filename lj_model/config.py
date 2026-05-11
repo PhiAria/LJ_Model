@@ -204,8 +204,8 @@ def model_switch_lines(params: JetParams) -> list[str]:
         f'use_breakup_length_model      : {switches.use_breakup_length_model} (fixed fallback = {params.fixed_breakup_length * 1e3:.2f} mm)',
         f'breakup_correlation           : Lb/D = {params.breakup_calibration_factor:.2f} × {params.breakup_correlation_coefficient:.1f} × sqrt(We) × (1 + {params.breakup_viscous_coefficient:.1f} Oh)',
         f'breakup_limitations           : laminar capillary regime only; aerodynamic breakup and nozzle-forcing spectra are not modeled',
-        f'instability_growth_model      : C_omega={params.breakup_growth_prefactor:.3f}, C_mu={params.breakup_viscous_damping_coefficient:.2f},'
-        f' a0/r={params.breakup_initial_amplitude_fraction:.2e}, beta_c={params.breakup_final_amplitude_fraction:.2f}',
+        (f'instability_growth_model      : C_omega={params.breakup_growth_prefactor:.3f}, C_mu={params.breakup_viscous_damping_coefficient:.2f},'
+         f' a0/r={params.breakup_initial_amplitude_fraction:.2e}, beta_c={params.breakup_final_amplitude_fraction:.2f}'),
         f'freeze_model                  : {switches.freeze_model} (empirical freeze onset at {params.T_freeze:.2f} K; CNT remains a liquid-branch diagnostic)',
         f'velocity_assumption           : constant axial speed from incompressible surface recession continuity',
         f'alpha_evap                    : {params.alpha_evap}',
