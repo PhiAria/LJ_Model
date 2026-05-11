@@ -5,7 +5,7 @@ import numpy as np
 
 from .config import build_user_params, make_default_params, select_solvent
 from .evaporation import diffusion_limited_flux, hertz_knudsen_flux
-from .jet_model import compute_nozzle_diagnostics, solve_jet
+from .jet_model import compute_nozzle_diagnostics, local_instability_growth_rate, solve_jet
 from .nucleation import compute_survival
 from .properties import liquid_dynamic_viscosity, liquid_heat_capacity, liquid_surface_tension
 from .solvents import SOLVENT_DATABASE
@@ -85,6 +85,53 @@ def run_smoke_tests() -> list[str]:
     survival_delta = np.diff(nucleation.P_survival)
     assert np.all(survival_delta <= 1e-12)
 
+    # --- instability_growth mode tests ---
+    ig_params = build_user_params(
+        selected_solvent='water',
+        breakup_mode='instability_growth',
+        breakup_growth_prefactor=0.34,
+        breakup_viscous_damping_coefficient=3.0,
+        breakup_initial_amplitude_fraction=1e-4,
+        breakup_final_amplitude_fraction=0.3,
+    )
+    assert ig_params.switches.breakup_mode == 'instability_growth'
+    ig_nozzle = compute_nozzle_diagnostics(ig_params)
+    assert ig_nozzle.instability_growth_mode is True
+    assert ig_nozzle.breakup_mode == 'instability_growth'
+    assert ig_nozzle.breakup_model_name.startswith('Local instability')
+    assert ig_nozzle.computed_breakup_length > 0.0
+
+    ig_solution = solve_jet(ig_params)
+    assert ig_solution.termination_reason == 'breakup', (
+        f'Instability-growth mode did not terminate by breakup; got {ig_solution.termination_reason!r}'
+    )
+    assert 0.0 < ig_solution.breakup_length < 0.05, (
+        f'Instability-growth breakup length out of expected range: {ig_solution.breakup_length * 1e3:.3f} mm'
+    )
+    assert ig_solution.breakup_source == 'instability-growth amplitude threshold'
+    assert ig_solution.nozzle_diagnostics.instability_growth_mode is True
+
+    # Verify growth rate function returns a positive value with typical water conditions
+    ig_omega = local_instability_growth_rate(
+        r=10e-6, sigma=0.073, mu=1e-3, rho=998.0, params=ig_params
+    )
+    assert ig_omega > 0.0
+
+    # Verify build_user_params raises for invalid breakup_mode
+    try:
+        build_user_params(breakup_mode='bad_mode')
+        raise AssertionError('Expected ValueError for invalid breakup_mode.')
+    except ValueError:
+        pass
+
+    # Verify radial-profile off + instability_growth mode also terminates by breakup
+    ig_no_profile = build_user_params(breakup_mode='instability_growth').with_updates(
+        switches=replace(ig_params.switches, use_radial_profile=False)
+    )
+    ig_no_profile_sol = solve_jet(ig_no_profile)
+    assert ig_no_profile_sol.termination_reason == 'breakup'
+    assert 0.0 < ig_no_profile_sol.breakup_length < 0.05
+
     return [
         'Property correlations return plausible values at 293 K and 273 K.',
         'Hertz-Knudsen and continuum diffusion reference fluxes are positive.',
@@ -92,4 +139,6 @@ def run_smoke_tests() -> list[str]:
         'Breakup model switch supports computed and fixed-length operation.',
         'Supported solvents expose positive transport/thermo properties.',
         'CNT survival curve is monotonically non-increasing.',
+        'Instability-growth mode terminates by amplitude threshold and reports finite breakup position.',
+        'Instability-growth mode works with and without radial profile.',
     ]
